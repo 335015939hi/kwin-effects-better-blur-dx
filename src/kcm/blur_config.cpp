@@ -12,12 +12,12 @@
 
 #include <KPluginFactory>
 #include "kwineffects_interface.h"
+#include "settings.hpp"
 
 #include <QFileDialog>
 #include <QPushButton>
 
-namespace KWin
-{
+namespace BBDX {
 
 K_PLUGIN_CLASS(BlurEffectConfig)
 
@@ -38,21 +38,19 @@ BlurEffectConfig::BlurEffectConfig(QObject *parent, const KPluginMetaData &data)
 
     setupContextualHelp();
     setupSpinboxSliderSync();
+    setupConstraints();
 
     connect(ui.kcfg_RefractionMode, &QComboBox::currentIndexChanged, this, &BlurEffectConfig::slotRefractionModeChanged);
     slotRefractionModeChanged(ui.kcfg_RefractionMode->currentIndex());
 }
 
-BlurEffectConfig::~BlurEffectConfig()
-{
-}
+BlurEffectConfig::~BlurEffectConfig() {}
 
 void BlurEffectConfig::setContextualHelp(
     KContextualHelpButton *const contextualHelpButton,
     const QString &text,
     QWidget *const heightHintWidget
-)
-{
+) {
     contextualHelpButton->setContextualHelpText(text);
     if (heightHintWidget) {
         const auto ownHeightHint = contextualHelpButton->sizeHint().height();
@@ -63,8 +61,7 @@ void BlurEffectConfig::setContextualHelp(
     }
 }
 
-void BlurEffectConfig::setupContextualHelp()
-{
+void BlurEffectConfig::setupContextualHelp() {
     setContextualHelp(
         ui.windowClassesContextualHelp,
         QStringLiteral("<p>Specify one window class pattern per line.</p>") +
@@ -83,49 +80,68 @@ void BlurEffectConfig::setupContextualHelp()
     );
 }
 
-void BlurEffectConfig::setupSpinboxSliderSync()
-{
-    connect(ui.kcfg_Brightness, &QSlider::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncBrightness);
-    connect(ui.spinboxBrightness, &QSpinBox::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncBrightness);
-    slotSpinboxSliderSyncBrightness(ui.kcfg_Brightness->value());
+void BlurEffectConfig::setupSpinboxSliderSync() {
+    // Blur Strength
+    ui.spinboxBlurStrength->setValue(ui.kcfg_BlurStrength->value());
+    connect(ui.kcfg_BlurStrength, &QSlider::valueChanged, this, [this](int value) {
+            if (ui.spinboxBlurStrength->value() != value) ui.spinboxBlurStrength->setValue(value); });
+    connect(ui.spinboxBlurStrength, &QSpinBox::valueChanged, this, [this](int value) {
+            if (ui.kcfg_BlurStrength->value() != value) ui.kcfg_BlurStrength->setValue(value); });
 
-    connect(ui.kcfg_Saturation, &QSlider::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncSaturation);
-    connect(ui.spinboxSaturation, &QSpinBox::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncSaturation);
-    slotSpinboxSliderSyncSaturation(ui.kcfg_Saturation->value());
+    // Noise Strength
+    ui.spinboxNoiseStrength->setValue(ui.kcfg_NoiseStrength->value());
+    connect(ui.kcfg_NoiseStrength, &QSlider::valueChanged, this, [this](int value) {
+            if (ui.spinboxNoiseStrength->value() != value) ui.spinboxNoiseStrength->setValue(value); });
+    connect(ui.spinboxNoiseStrength, &QSpinBox::valueChanged, this, [this](int value) {
+            if (ui.kcfg_NoiseStrength->value() != value) ui.kcfg_NoiseStrength->setValue(value); });
 
-    connect(ui.kcfg_Contrast, &QSlider::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncContrast);
-    connect(ui.spinboxContrast, &QSpinBox::valueChanged, this, &BlurEffectConfig::slotSpinboxSliderSyncContrast);
-    slotSpinboxSliderSyncContrast(ui.kcfg_Contrast->value());
+    // Brightness
+    ui.spinboxBrightness->setValue(ui.kcfg_Brightness->value());
+    connect(ui.kcfg_Brightness, &QSlider::valueChanged, this, [this](int value) {
+            if (ui.spinboxBrightness->value() != value) ui.spinboxBrightness->setValue(value); });
+    connect(ui.spinboxBrightness, &QSpinBox::valueChanged, this, [this](int value) {
+            if (ui.kcfg_Brightness->value() != value) ui.kcfg_Brightness->setValue(value); });
+
+    // Saturation
+    ui.spinboxSaturation->setValue(ui.kcfg_Saturation->value());
+    connect(ui.kcfg_Saturation, &QSlider::valueChanged, this, [this](int value) {
+            if (ui.spinboxSaturation->value() != value) ui.spinboxSaturation->setValue(value); });
+    connect(ui.spinboxSaturation, &QSpinBox::valueChanged, this, [this](int value) {
+            if (ui.kcfg_Saturation->value() != value) ui.kcfg_Saturation->setValue(value); });
+
+    // Contrast
+    ui.spinboxContrast->setValue(ui.kcfg_Contrast->value());
+    connect(ui.kcfg_Contrast, &QSlider::valueChanged, this, [this](int value) {
+            if (ui.spinboxContrast->value() != value) ui.spinboxContrast->setValue(value); });
+    connect(ui.spinboxContrast, &QSpinBox::valueChanged, this, [this](int value) {
+            if (ui.kcfg_Contrast->value() != value) ui.kcfg_Contrast->setValue(value); });
 }
 
-void BlurEffectConfig::slotSpinboxSliderSyncBrightness(int value)
-{
-    if (ui.kcfg_Brightness->value() != value) {
-        ui.kcfg_Brightness->setValue(value);
-    }
-    if (ui.spinboxBrightness->value() != value) {
-        ui.spinboxBrightness->setValue(value);
-    }
-}
+void BlurEffectConfig::setupConstraints() {
+#if defined(BBDX_X11)
+    /**
+     * X11 only has one mode available
+     */
+    ui.kcfg_BlitMode->setEnabled(false);
+#endif
 
-void BlurEffectConfig::slotSpinboxSliderSyncSaturation(int value)
-{
-    if (ui.kcfg_Saturation->value() != value) {
-        ui.kcfg_Saturation->setValue(value);
-    }
-    if (ui.spinboxSaturation->value() != value) {
-        ui.spinboxSaturation->setValue(value);
-    }
-}
+    // wallpaper mode expects the cache
+    // and doesn't care about the flush interval
+    auto slotBlitModeChanged = [this](int index) {
+        switch (static_cast<BBDX::BlitMode>(index)) {
+            case BBDX::BlitMode::WALLPAPER:
+                ui.kcfg_BlurCacheIgnore->setEnabled(false);
+                ui.kcfg_BlurCacheRateLimit->setEnabled(false);
+                break;
 
-void BlurEffectConfig::slotSpinboxSliderSyncContrast(int value)
-{
-    if (ui.kcfg_Contrast->value() != value) {
-        ui.kcfg_Contrast->setValue(value);
-    }
-    if (ui.spinboxContrast->value() != value) {
-        ui.spinboxContrast->setValue(value);
-    }
+            default:
+                ui.kcfg_BlurCacheIgnore->setEnabled(true);
+                ui.kcfg_BlurCacheRateLimit->setEnabled(true);
+                break;
+        }
+    };
+    connect(ui.kcfg_BlitMode, &QComboBox::currentIndexChanged, this, slotBlitModeChanged);
+    slotBlitModeChanged(ui.kcfg_BlitMode->currentIndex());
 }
 
 void BlurEffectConfig::slotRefractionModeChanged(int index) {
@@ -156,8 +172,7 @@ void BlurEffectConfig::slotRefractionModeChanged(int index) {
     }
 }
 
-void BlurEffectConfig::save()
-{
+void BlurEffectConfig::save() {
     KCModule::save();
 
     OrgKdeKwinEffectsInterface interface(QStringLiteral("org.kde.KWin"),
@@ -167,7 +182,7 @@ void BlurEffectConfig::save()
     interface.reconfigureEffect(QStringLiteral("better_blur_dx"));
 }
 
-} // namespace KWin
+} // namespace BBDX
 
 #include "blur_config.moc"
 

@@ -13,47 +13,21 @@ namespace BBDX {
 
 class RefractionPass {
 private:
-    struct Rectangular {
-        std::unique_ptr<KWin::GLShader> shader;
-        // contrast parameters
-        int mvpMatrixLocation;
-        int colorMatrixLocation;
-        int offsetLocation;
-        int halfpixelLocation;
-        // refraction parameters
-        int refractionRectSizeLocation;
-        int refractionEdgeSizePixelsLocation;
-        int refractionCornerRadiusPixelsLocation;
-        int refractionStrengthLocation;
-        int refractionNormalPowLocation;
-        int refractionRGBFringingLocation;
-        int refractionTextureRepeatModeLocation;
-        int refractionModeLocation;
-    };
-
-    struct Rounded {
-        std::unique_ptr<KWin::GLShader> shader;
-        // contrast parameters
-        int mvpMatrixLocation;
-        int colorMatrixLocation;
-        int offsetLocation;
-        int halfpixelLocation;
-        int boxLocation;
-        int cornerRadiusLocation;
-        int opacityLocation;
-        // refraction parameters
-        int refractionRectSizeLocation;
-        int refractionEdgeSizePixelsLocation;
-        int refractionCornerRadiusPixelsLocation;
-        int refractionStrengthLocation;
-        int refractionNormalPowLocation;
-        int refractionRGBFringingLocation;
-        int refractionTextureRepeatModeLocation;
-        int refractionModeLocation;
-    };
-
-    Rectangular m_rectangular{};
-    Rounded m_rounded{};
+    std::unique_ptr<KWin::GLShader> m_shader;
+    // contrast parameters
+    int m_mvpMatrixLocation;
+    int m_colorMatrixLocation;
+    int m_offsetLocation;
+    int m_halfpixelLocation;
+    // refraction parameters
+    int m_refractionRectSizeLocation;
+    int m_refractionEdgeSizePixelsLocation;
+    int m_refractionCornerRadiusPixelsLocation;
+    int m_refractionStrengthLocation;
+    int m_refractionNormalPowLocation;
+    int m_refractionRGBFringingLocation;
+    int m_refractionTextureRepeatModeLocation;
+    int m_refractionModeLocation;
 
     bool m_enabled{false};
 
@@ -66,21 +40,18 @@ private:
     int m_textureRepeatMode{};
     int m_mode{};
 
+    RefractionPass() = default;
+
 public:
     /**
      * Loads required shaders and sets up shader uniformLocations
      */
-    explicit RefractionPass();
+    static std::unique_ptr<RefractionPass> create();
 
     /**
      * reconfigure from BlurConfig
      */
     void reconfigure();
-
-    /**
-     * Check if pass is ready i.e. all shaders loaded
-     */
-    bool ready() const { return m_rectangular.shader && m_rounded.shader; }
 
     /**
      * Check if refraction pass is enabled
@@ -92,33 +63,18 @@ public:
      *
      * returns false if refraction is disabled
      */
-    bool pushShaderRounded() const;
-    bool pushShaderRectangular() const;
+    bool pushShader() const;
 
     /**
-     * Set GLSL parameters, rounded version
+     * Set GLSL parameters
      *
      * returns false if refraction is disabled
      */
-    bool setParametersRounded(const QMatrix4x4 &projectionMatrix,
-                              const QMatrix4x4 &colorMatrix,
-                              const QVector2D &halfpixel,
-                              const float offset,
-                              const QVector4D &box,
-                              const QVector4D &cornerRadius,
-                              const qreal opacity,
-                              const QRect &scaledBackgroundRect) const;
-
-    /**
-     * Set GLSL parameters, rectangular version
-     *
-     * returns false if refraction is disabled
-     */
-    bool setParametersRectangular(const QMatrix4x4 &projectionMatrix,
-                                  const QMatrix4x4 &colorMatrix,
-                                  const QVector2D &halfpixel,
-                                  const float offset,
-                                  const QRect &scaledBackgroundRect) const;
+    bool setParameters(const QMatrix4x4 &projectionMatrix,
+                       const QMatrix4x4 &colorMatrix,
+                       const QVector2D &halfpixel,
+                       const float offset,
+                       const QRect &scaledBackgroundRect) const;
 };
 
 } // namespace BBDX

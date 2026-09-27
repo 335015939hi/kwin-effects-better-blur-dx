@@ -1,14 +1,13 @@
 #pragma once
 
-#include "kwin_version.hpp"
+#include "kwin_compat.hpp"
 #include "window.hpp"
 
+#include <effect/effect.h>
 #include <effect/effecthandler.h>
 #include <effect/effectwindow.h>
 
-#if KWIN_VERSION < KWIN_VERSION_CODE(6, 5, 80)
-#  include "kwin_compat_6_5.hpp"
-#else
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 5, 80)
 #  include <core/output.h>
 #  include <core/region.h>
 #endif
@@ -19,16 +18,16 @@
 #include <QString>
 
 #include <memory>
+#include <chrono>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace KWin {
     class BorderRadius;
-    class BlurEffect;
 }
 
-namespace BBDX
-{
+namespace BBDX {
+class BlurEffect;
 
 class WindowManager : public QObject {
     Q_OBJECT
@@ -41,7 +40,7 @@ public:
 
 private:
     // pointer to the owning BlurEffect instance
-    KWin::BlurEffect *m_effect;
+    BBDX::BlurEffect *m_effect;
 
     // managed windows
     std::unordered_map<const KWin::EffectWindow *, std::unique_ptr<BBDX::Window>> m_windows{};
@@ -81,7 +80,7 @@ public Q_SLOT:
     void slotWindowDeleted(KWin::EffectWindow *w);
 
 public:
-    explicit WindowManager(KWin::BlurEffect *effect);
+    explicit WindowManager(BBDX::BlurEffect *effect);
 
     /**
      * reconfigure from BlurConfig
@@ -116,7 +115,7 @@ public:
     /**
      * emits the windowInvalidatedBlurCache signal
      */
-    bool invalidateBlurCache(KWin::EffectWindow *w, QStringView reason) const;
+    void invalidateBlurCache(KWin::EffectWindow *w, uint flags, const char *reason) const;
 
     /**
      * Set the "window is transformed" flag on a window
@@ -141,7 +140,7 @@ public:
      * Forwarded to BBDX::Window::getFinalBlurRegion() if w is managed
      * else does nothing.
      */
-    void getFinalBlurRegion(const KWin::EffectWindow *w, std::optional<KWin::Region> &content, std::optional<KWin::Region> &frame) const;
+    void getFinalBlurRegion(const KWin::EffectWindow *w, std::optional<KWin::RegionF> &content, std::optional<KWin::RegionF> &frame) const;
 
     /**
      * Get effective border radius for requested window,
@@ -153,6 +152,29 @@ public:
      * Get effective blur opacity for requested window
      */
     qreal getEffectiveBlurOpacity(const KWin::EffectWindow *w, KWin::WindowPaintData &data) const;
+
+    /**
+     * Check if the provided window's blur region is fully covered by
+     * the frame geometry of other windows
+     */
+    bool windowIsBlurFullyCovered(KWin::EffectWindow *w) const;
+
+    /**
+     * Add a full repaint to all blurred windows
+     */
+    void repaintAllBlurredWindows() const;
+
+    /**
+     * Flush all caches of a window
+     */
+    void flushWindowCaches(BBDX::Window *window) const;
+    void flushWindowCachesFor(BBDX::Window *window, std::chrono::milliseconds duration) const;
+
+    /**
+     * Flush all caches of all windows
+     */
+    void flushAllWindowCaches() const;
+    void flushAllWindowCachesFor(std::chrono::milliseconds duration) const;
 };
 
 } // namespace KWin

@@ -1,18 +1,57 @@
 # DEV
 Things not in any tagged release yet:
 
+# 2.5.1
+
+### Bug Fixes:
+- Adapt to KWin shader load changes [KWin MR](https://invent.kde.org/plasma/kwin/-/merge_requests/9053)
+  On Plasma 6.7+ we now explicitly load the `_core` version of shaders
+
+# 2.5.0
+
+### Features
+- **Plasma 6.7 support**
+- **BlurCache rework**
+  The cache is now only used to rate-limit frequent repaints
+  (currently hard coded ~30fps).
+  After a bunch of experiments the conclusion was made that
+  comparing textures to decide whether to use the cache or not
+  is not worth it. At best it's just very slightly faster than blurring
+  unconditionally and at worst you have to pay for both the compare
+  *and* the re-blur on difference (which could also just occur randomly
+  because of various rounding issues).
+
+### Internal
+- Don't invalidate cache on opacity change (this was left over from
+  when opacity was still part of the cached texture)
+- There is now a unified `kwin_compat.hpp` header which automatically
+  includes `kwin_version.hpp` and all appropriate `kwin_compat_<version>.hpp` headers
+  depending on the build environment.
+
+# 2.4.1
+
+Version bump to fix version string - no actual changes
+
+# 2.4.0
+
 ### Features:
 - **Blur Caching** to (hopefully) improve performance of the effect.
   This is my 3rd attempt at "making the effect less GPU hungry"
   and changes a good chunk of the rendering pipeline.
   At least on my machine and testing VM it does look quite promising
-  and I've been running it for about a week now any without major issues.
-  (But then seeing the bug reports here a lot of you seem to use blur a lot
-  more than me so I'm sure at least someone will find a bug here, heh)
+  and I haven't seen any issues reported since the introduction in `main`
+- **Higher Noise Strength Limits** in case you wanted to increase those more without
+  digging through `kwinrc`. The limit was increased from 14 to 50.
+- **Spinboxes for Blur Strength and Noise Strength** if you prefer numbers over sliders - and to be consistent with the other options.
 
 ### Bug Fixes:
 - Fixed `maximizedState` detection with "slim" panels that don't cover a full screen edge
-- Fixed incomplete repaints e.g. when a video is playing behind a blurred surface
+- Fixed incomplete repaints e.g. when a video is playing behind a blurred surface (needs KWin 6.6.4+)
+
+### Internal
+- Cleaned up a bunch of dead code and shaders
+- Assume kwin-x11 has API version 6.5.0 (it hasn't really seen any updates since then)
+- `WindowManager` now talks directly to the `BlurEffect` without going through the Qt slot loop
 
 # 2.3.0
 

@@ -11,18 +11,10 @@
 #include <QWidget>
 #include <KContextualHelpButton>
 
-namespace KWin
-{
+namespace BBDX {
 
-class BlurEffectConfig : public KCModule
-{
+class BlurEffectConfig : public KCModule {
     Q_OBJECT
-
-public:
-    explicit BlurEffectConfig(QObject *parent, const KPluginMetaData &data);
-    ~BlurEffectConfig() override;
-
-    void save() override;
 
 private:
     ::Ui::BlurEffectConfig ui;
@@ -35,11 +27,19 @@ private:
     void setupContextualHelp();
     void setupSpinboxSliderSync();
 
-    void slotSpinboxSliderSyncBrightness(int value);
-    void slotSpinboxSliderSyncSaturation(int value);
-    void slotSpinboxSliderSyncContrast(int value);
+    /**
+     * Fixed compile time constraints
+     */
+    void setupConstraints();
 
+public:
+    explicit BlurEffectConfig(QObject *parent, const KPluginMetaData &data);
+    ~BlurEffectConfig() override;
+
+    void save() override;
+
+public Q_SLOTS:
     void slotRefractionModeChanged(int index);
 };
 
-} // namespace KWin
+} // namespace BBDX

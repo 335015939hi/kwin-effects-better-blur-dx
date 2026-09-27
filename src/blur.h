@@ -8,18 +8,18 @@
 #pragma once
 
 #include "blur_cache.hpp"
-#include "kwin_version.hpp"
+
+#include "kwin_compat.hpp"
+
 #include "refraction_pass.hpp"
 #include "rounded_corners_pass.hpp"
-#include "settings.h"
 #include "window_manager.hpp"
+#include "settings.hpp"
 
 #include <memory>
 #include <opengl/glframebuffer.h>
 
-#if KWIN_VERSION < KWIN_VERSION_CODE(6, 5, 80)
-#  include "kwin_compat_6_5.hpp"
-#else
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 5, 80)
 #  include <core/rect.h>
 #  include <core/region.h>
 #endif
@@ -29,6 +29,9 @@
 #include <opengl/glutils.h>
 #include <scene/item.h>
 #include <scene/scene.h>
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 6, 4)
+#include <scene/backgroundeffectitem.h>
+#endif
 #include <window.h>
 
 #include <QList>
@@ -36,12 +39,17 @@
 #include <optional>
 #include <unordered_map>
 
-namespace KWin
-{
-
+namespace KWin {
+#if KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
 class BlurManagerInterface;
 class ContrastManagerInterface;
-class BackgroundEffectItem;
+#endif
+}
+
+namespace BBDX {
+using namespace KWin;
+
+class BlurCacheEntry;
 
 struct BlurRenderData
 {
@@ -50,26 +58,22 @@ struct BlurRenderData
     std::vector<std::unique_ptr<GLTexture>> textures;
     std::vector<std::unique_ptr<GLFramebuffer>> framebuffers;
 
-    BBDX::BlurCacheData cache;
+    std::unique_ptr<BBDX::BlurCacheEntry> cache;
 };
 
 struct BlurEffectData
 {
     /// The region that should be blurred behind the window
-    std::optional<Region> content;
+    std::optional<RegionF> content;
 
     /// The region that should be blurred behind the frame
-    std::optional<Region> frame;
+    std::optional<RegionF> frame;
 
     /**
      * The render data per render view, as they can have different
      *  color spaces and even different windows on them
      */
-#if defined(BETTERBLUR_X11)
-    std::unordered_map<Output *, BlurRenderData> render;
-#else
     std::unordered_map<RenderView *, BlurRenderData> render;
-#endif
 
 #if KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 4)
     ItemEffect windowEffect;
@@ -95,13 +99,23 @@ public:
     static bool enabledByDefault();
 
     void reconfigure(ReconfigureFlags flags) override;
+#if KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
+#else
+    void prePaintScreen(ScreenPrePaintData &data) override;
+#endif
 #if KWIN_VERSION < KWIN_VERSION_CODE(6, 5, 80)
     void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
-#else
+#elif KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
     void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
+#else
+    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data) override;
 #endif
+#if KWIN_VERSION < KWIN_VERSION_CODE(6, 7, 90)
     void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const Region &deviceRegion, WindowPaintData &data) override;
+#else
+    bool drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const Region &deviceRegion, WindowPaintData &data) override;
+#endif
 
     bool provides(Feature feature) override;
     bool isActive() const override;
@@ -118,18 +132,14 @@ public:
 public Q_SLOTS:
     void slotWindowAdded(KWin::EffectWindow *w);
     void slotWindowDeleted(KWin::EffectWindow *w);
-#if defined(BETTERBLUR_X11)
-    void slotScreenRemoved(KWin::Output *view);
-#else
     void slotViewRemoved(KWin::RenderView *view);
-#endif
     void slotPropertyNotify(KWin::EffectWindow *w, long atom);
     void setupDecorationConnections(EffectWindow *w);
 
 private:
     void initBlurStrengthValues();
-    Region blurRegion(EffectWindow *w) const;
-    Region decorationBlurRegion(const EffectWindow *w) const;
+    RegionF blurRegion(EffectWindow *w) const;
+    RegionF decorationBlurRegion(const EffectWindow *w) const;
     bool decorationSupportsBlurBehind(const EffectWindow *w) const;
     bool shouldBlur(const EffectWindow *w, int mask, const WindowPaintData &data) const;
     void updateBlurRegion(EffectWindow *w);
@@ -146,6 +156,7 @@ private:
         int halfpixelLocation;
     } m_onscreenPass;
 
+#if BBDX_NOT_NEEDED
     struct
     {
         std::unique_ptr<GLShader> shader;
@@ -157,6 +168,7 @@ private:
         int cornerRadiusLocation;
         int opacityLocation;
     } m_roundedOnscreenPass;
+#endif
 
     struct
     {
@@ -192,11 +204,7 @@ private:
     Region m_currentDeviceBlur; // keeps track of currently blurred area of the windows (from bottom to top)
 #endif
 
-#if defined(BETTERBLUR_X11)
-    Output *m_currentView = nullptr;
-#else
     RenderView *m_currentView = nullptr;
-#endif
 
     QMatrix4x4 m_colorMatrix;
     size_t m_iterationCount; // number of times the texture will be downsized to half size
@@ -222,25 +230,36 @@ private:
     QList<BlurValuesStruct> blurStrengthValues;
 
     QMap<EffectWindow *, QMetaObject::Connection> windowBlurChangedConnections;
+#if !defined(BBDX_X11) && KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
     QMap<EffectWindow *, QMetaObject::Connection> windowContrastChangedConnections;
+#endif
     std::unordered_map<EffectWindow *, BlurEffectData> m_windows;
 
+#if !defined(BBDX_X11) && KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
     static BlurManagerInterface *s_blurManager;
     static QTimer *s_blurManagerRemoveTimer;
 
     static ContrastManagerInterface *s_contrastManager;
     static QTimer *s_contrastManagerRemoveTimer;
+#endif
 
     // BBDX Mixins
-    BlurSettings m_settings;
     bool m_forceContrastParams{false};
 
     std::unique_ptr<BBDX::WindowManager> m_windowManager{};
     friend void BBDX::WindowManager::triggerBlurRegionUpdate(KWin::EffectWindow *w) const;
-    friend bool BBDX::WindowManager::invalidateBlurCache(KWin::EffectWindow *w, QStringView reason) const;
+    friend void BBDX::WindowManager::invalidateBlurCache(KWin::EffectWindow *w, uint flags, const char *reason) const;
+    friend void BBDX::WindowManager::flushWindowCaches(BBDX::Window *window) const;
+    friend void BBDX::WindowManager::flushWindowCachesFor(BBDX::Window *window, std::chrono::milliseconds duration) const;
     std::unique_ptr<BBDX::BlurCache> m_blurCache{};
+    friend void BBDX::BlurCache::flushAccumulatedDirtyRegions(KWin::ScreenPrePaintData &data) const;
     std::unique_ptr<BBDX::RefractionPass> m_refractionPass{};
     std::unique_ptr<BBDX::RoundedCornersPass> m_roundedCornersPass{};
+
+public:
+    WindowManager* windowManager() const { return m_windowManager.get(); }
+    BlurCache* blurCache() const { return m_blurCache.get(); }
+    RoundedCornersPass* roundedCornersPass() const { return m_roundedCornersPass.get(); }
 };
 
 inline bool BlurEffect::provides(Effect::Feature feature)
@@ -251,4 +270,4 @@ inline bool BlurEffect::provides(Effect::Feature feature)
     return KWin::Effect::provides(feature);
 }
 
-} // namespace KWin
+} // namespace BBDX

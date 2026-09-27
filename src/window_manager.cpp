@@ -2,20 +2,21 @@
 
 #include "blur.h"
 #include "blurconfig.h"
-#include "kwin_version.hpp"
+#include "kwin_compat.hpp"
 #include "utils.h"
 #include "window.hpp"
 
+#include <core/outputlayer.h>
 #include <core/pixelgrid.h>
 #include <core/renderviewport.h>
 #include <effect/effecthandler.h>
 #include <effect/effectwindow.h>
+#include <qloggingcategory.h>
 #include <scene/borderradius.h>
+#include <scene/windowitem.h>
 #include <window.h>
 
-#if KWIN_VERSION < KWIN_VERSION_CODE(6, 5, 80)
-#  include "kwin_compat_6_5.hpp"
-#else
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 5, 80)
 #  include <core/output.h>
 #  include <core/region.h>
 #endif
@@ -32,7 +33,7 @@
 
 Q_LOGGING_CATEGORY(WINDOW_MANAGER, "kwin_effect_better_blur_dx.window_manager", QtInfoMsg)
 
-BBDX::WindowManager::WindowManager(KWin::BlurEffect *effect) {
+BBDX::WindowManager::WindowManager(BBDX::BlurEffect *effect) {
     m_effect = effect;
 
     // add existing windows
@@ -47,14 +48,14 @@ BBDX::WindowManager::WindowManager(KWin::BlurEffect *effect) {
 void BBDX::WindowManager::slotWindowAdded(KWin::EffectWindow *w) {
     auto window = std::make_unique<BBDX::Window>(this, w);
 
-    qCDebug(WINDOW_MANAGER) << BBDX::LOG_PREFIX << "Window added:" << *window;
-
     m_windows.insert_or_assign(w, std::move(window));
 
     if (w->isDock()) {
         m_docks.insert(w);
         refreshMaximizedStateAll();
     }
+
+    qCDebug(WINDOW_MANAGER) << BBDX::LOG_PREFIX << "Window added:" << *(m_windows[w]);
 }
 
 void BBDX::WindowManager::slotWindowDeleted(KWin::EffectWindow *w) {
@@ -99,7 +100,7 @@ std::vector<BBDX::Window *> BBDX::WindowManager::windowsByStackingOrder() const 
 }
 
 void BBDX::WindowManager::reconfigure() {
-    auto config = KWin::BlurConfig::self();
+    auto config = BBDX::BlurConfig::self();
 
     if (!config) {
         qCWarning(WINDOW_MANAGER) << BBDX::LOG_PREFIX
@@ -160,6 +161,10 @@ void BBDX::WindowManager::reconfigure() {
 }
 
 void BBDX::WindowManager::refreshMaximizedState(BBDX::Window *window) const {
+    /**
+     * TODO: convert to RegionF
+     */
+
     const KWin::EffectWindow *w = window->effectwindow();
 
     const KWin::LogicalOutput* screen = w->screen();
@@ -266,19 +271,15 @@ void BBDX::WindowManager::triggerBlurRegionUpdate(KWin::EffectWindow *w) const {
     m_effect->updateBlurRegion(w);
 }
 
-bool BBDX::WindowManager::invalidateBlurCache(KWin::EffectWindow *w, QStringView reason) const {
-    bool anyInvalidated{false};
-
+void BBDX::WindowManager::invalidateBlurCache(KWin::EffectWindow *w, uint flags, const char *reason) const {
     if (auto it = m_effect->m_windows.find(w); it != m_effect->m_windows.end()) {
-        KWin::BlurEffectData &blurInfo = it->second;
+        BBDX::BlurEffectData &blurInfo = it->second;
         for (auto &[_, renderInfo] : blurInfo.render) {
-            if (renderInfo.cache.invalidate(reason)) {
-                anyInvalidated = true;
+            if (renderInfo.cache) {
+                renderInfo.cache->invalidate(flags, reason);
             }
         }
     }
-
-    return anyInvalidated;
 }
 
 void BBDX::WindowManager::setWindowIsTransformed(const KWin::EffectWindow *w, bool toggle) const {
@@ -310,7 +311,7 @@ bool BBDX::WindowManager::windowIsBlurred(const KWin::EffectWindow *w) const {
     return window->isBlurred();
 }
 
-void BBDX::WindowManager::getFinalBlurRegion(const KWin::EffectWindow *w, std::optional<KWin::Region> &content, std::optional<KWin::Region> &frame) const {
+void BBDX::WindowManager::getFinalBlurRegion(const KWin::EffectWindow *w, std::optional<KWin::RegionF> &content, std::optional<KWin::RegionF> &frame) const {
     const auto window = findWindow(w);
     if (!window)
         return;
@@ -336,4 +337,65 @@ qreal BBDX::WindowManager::getEffectiveBlurOpacity(const KWin::EffectWindow *w, 
         return data.opacity();
 
     return window->getEffectiveBlurOpacity(data);
+}
+
+bool BBDX::WindowManager::windowIsBlurFullyCovered(KWin::EffectWindow *w) const {
+    const auto window = findWindow(w);
+
+    // for unmanaged windows assume false so they
+    // don't get throttled accidentally
+    if (!window)
+        return false;
+
+    return window->isBlurFullyCovered();
+}
+
+void BBDX::WindowManager::repaintAllBlurredWindows() const {
+    for (const auto &[kWindow, bbdxWindow] : m_windows) {
+        if (!bbdxWindow->isBlurred()) {
+            continue;
+        }
+
+        const_cast<KWin::EffectWindow *>(kWindow)->addRepaintFull();
+    }
+}
+
+void BBDX::WindowManager::flushWindowCaches(BBDX::Window *window) const {
+    auto it = m_effect->m_windows.find(window->effectwindow());
+    if (it == m_effect->m_windows.end()) {
+        return;
+    }
+
+    auto &effectData = it->second;
+    for (auto &[view, renderData] : effectData.render) {
+        if (auto cacheEntry = renderData.cache.get()) {
+            cacheEntry->flush();
+        }
+    }
+}
+
+void BBDX::WindowManager::flushWindowCachesFor(BBDX::Window *window, std::chrono::milliseconds duration) const {
+    auto it = m_effect->m_windows.find(window->effectwindow());
+    if (it == m_effect->m_windows.end()) {
+        return;
+    }
+
+    auto &effectData = it->second;
+    for (auto &[view, renderData] : effectData.render) {
+        if (auto cacheEntry = renderData.cache.get()) {
+            cacheEntry->flushFor(duration);
+        }
+    }
+}
+
+void BBDX::WindowManager::flushAllWindowCaches() const {
+    for (const auto &[kWindow, bbdxWindow] : m_windows) {
+        flushWindowCaches(bbdxWindow.get());
+    }
+}
+
+void BBDX::WindowManager::flushAllWindowCachesFor(std::chrono::milliseconds duration) const {
+    for (const auto &[kWindow, bbdxWindow] : m_windows) {
+        flushWindowCachesFor(bbdxWindow.get(), duration);
+    }
 }

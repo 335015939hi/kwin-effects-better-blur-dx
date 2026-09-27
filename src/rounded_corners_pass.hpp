@@ -1,5 +1,9 @@
 #pragma once
 
+#include "blur_cache.hpp"
+#include "kwin_compat.hpp"
+#include "window_manager.hpp"
+
 #include <opengl/glshader.h>
 
 #include <QMatrix4x4>
@@ -9,51 +13,52 @@
 
 #include <opengl/glvertexbuffer.h>
 
+#include <memory>
+
 namespace KWin {
     class BorderRadius;
     class EffectWindow;
     class GLVertexBuffer;
     class RenderViewport;
     class WindowPaintData;
-    struct BlurRenderData;
 }
 
 namespace BBDX {
     class BlurCache;
+    class BlurCacheEntry;
 }
 
 namespace BBDX {
+struct BlurRenderData;
 
 class RoundedCornersPass {
 private:
     std::unique_ptr<KWin::GLShader> m_shader{nullptr};
     int m_mvpMatrixLocation;
+    int m_modulationLocation;
     int m_boxLocation;
     int m_cornerRadiusLocation;
+
+    RoundedCornersPass() = default;
 
 public:
     /**
      * Loads required shaders and sets up shader uniformLocations
+     * nullptr on error
      */
-    explicit RoundedCornersPass();
+    static std::unique_ptr<RoundedCornersPass> create();
 
     /**
-     * Check if pass is ready i.e. all shaders loaded
+     * Draw the cached texture with rounded corners to the screen
+     *
+     * returns true if drawn, else false (meaning it should be drawn normally)
      */
-    bool ready() const { return !!m_shader; }
-
-    /**
-     * Apply rounded corners with a mask from renderInfo.framebuffer[0]
-     * which should contain the raw un-blurred pixels of the blur area.
-     */
-    void apply(const KWin::BorderRadius &cornerRadius,
-               const KWin::RenderViewport &viewport,
-               const QRect &scaledBackgroundRect,
-               const KWin::BlurRenderData &renderInfo,
-               const KWin::EffectWindow *w,
-               const KWin::WindowPaintData &data,
-               KWin::GLVertexBuffer *vbo,
-               const BBDX::BlurCache *blurCache) const;
+    bool drawRounded(const BBDX::WindowManager *windowManager,
+                     const BBDX::BlurCache *blurCache,
+                     BBDX::BlurCacheEntry *cacheEntry,
+                     KWin::GLVertexBuffer *vbo,
+                     const int vertexCount,
+                     const float modulation) const;
 };
 
 } // namespace BBDX

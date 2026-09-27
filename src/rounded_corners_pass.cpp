@@ -1,6 +1,13 @@
 #include "rounded_corners_pass.hpp"
-#include "utils.h"
+
 #include "blur.h"
+#include "kwin_compat.hpp"
+#include "utils.h"
+
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 5, 80)
+#  include <core/rect.h>
+#  include <core/region.h>
+#endif
 
 #include <core/pixelgrid.h>
 #include <core/renderviewport.h>
@@ -15,68 +22,92 @@
 #include <QRect>
 #include <QImage>
 
+#include <memory>
 
 Q_LOGGING_CATEGORY(ROUNDED_CORNERS_PASS, "kwin_effect_better_blur_dx.rounded_corners_pass", QtInfoMsg)
 
-BBDX::RoundedCornersPass::RoundedCornersPass() {
-    m_shader = KWin::ShaderManager::instance()->generateShaderFromFile(
-            KWin::ShaderTrait::MapTexture,
-            QStringLiteral(":/effects/better_blur_dx/shaders/rounded_corners.vert"),
-            QStringLiteral(":/effects/better_blur_dx/shaders/rounded_corners.frag"));
+std::unique_ptr<BBDX::RoundedCornersPass> BBDX::RoundedCornersPass::create() {
+    std::unique_ptr<RoundedCornersPass> pass{new RoundedCornersPass};
 
-    if (!m_shader) {
+    pass->m_shader = KWin::ShaderManager::instance()->generateShaderFromFile(
+        KWin::ShaderTrait::MapTexture,
+        BBDX::shaderFilePath(":/effects/better_blur_dx/shaders/rounded_corners.vert"),
+        BBDX::shaderFilePath(":/effects/better_blur_dx/shaders/rounded_corners.frag")
+    );
+
+    if (!pass->m_shader) {
         qCWarning(ROUNDED_CORNERS_PASS) << BBDX::LOG_PREFIX << "Failed to load rounded corners pass shader";
-        return;
+        return nullptr;
     } else {
-        m_mvpMatrixLocation = m_shader->uniformLocation("modelViewProjectionMatrix");
-        m_boxLocation = m_shader->uniformLocation("box");
-        m_cornerRadiusLocation = m_shader->uniformLocation("cornerRadius");
+        pass->m_mvpMatrixLocation = pass->m_shader->uniformLocation("modelViewProjectionMatrix");
+        pass->m_modulationLocation = pass->m_shader->uniformLocation("modulation");
+        pass->m_boxLocation = pass->m_shader->uniformLocation("box");
+        pass->m_cornerRadiusLocation = pass->m_shader->uniformLocation("cornerRadius");
     }
+
+    return pass;
 }
 
-void BBDX::RoundedCornersPass::apply(const KWin::BorderRadius &cornerRadius,
-                                     const KWin::RenderViewport &viewport,
-                                     const QRect &scaledBackgroundRect,
-                                     const KWin::BlurRenderData &renderInfo,
-                                     const KWin::EffectWindow *w,
-                                     const KWin::WindowPaintData &data,
-                                     KWin::GLVertexBuffer *vbo,
-                                     const BBDX::BlurCache *blurCache) const {
-        if (!ready()) [[unlikely]] {
-            return;
-        }
+bool BBDX::RoundedCornersPass::drawRounded(const WindowManager *windowManager,
+                                           const BBDX::BlurCache *blurCache,
+                                           BBDX::BlurCacheEntry *cacheEntry,
+                                           KWin::GLVertexBuffer *vbo,
+                                           const int vertexCount,
+                                           const float modulation) const {
 
-        KWin::ShaderManager::instance()->pushShader(m_shader.get());
+    const auto w = blurCache->paintData().window;
+    const auto cornerRadius = windowManager->getEffectiveBorderRadius(w);
 
-        QMatrix4x4 projectionMatrix;
-        projectionMatrix.ortho(QRectF(0.0, 0.0, scaledBackgroundRect.width(), scaledBackgroundRect.height()));
+    if (cornerRadius.isNull()) {
+        return false;
+    }
 
-        // should contain the raw un-blurred pixels
-        const auto &read = renderInfo.framebuffers[0];
+    const auto data = blurCache->paintData().windowPaintData;
+    const auto scaledBackgroundRect = blurCache->paintData().scaledBackgroundRect;
+    const auto viewport = blurCache->paintData().viewport;
 
-        const QRectF transformedRect = QRectF{
-            w->frameGeometry().x() + data.xTranslation(),
-            w->frameGeometry().y() + data.yTranslation(),
-            w->frameGeometry().width() * data.xScale(),
-            w->frameGeometry().height() * data.yScale(),
-        };
-        const QRectF nativeBox = KWin::snapToPixelGridF(KWin::scaledRect(transformedRect, viewport.scale()))
-                                     .translated(-scaledBackgroundRect.topLeft());
-        const KWin::BorderRadius nativeCornerRadius = cornerRadius.scaled(viewport.scale()).rounded();
+    KWin::ShaderManager::instance()->pushShader(m_shader.get());
 
-        m_shader->setUniform(m_mvpMatrixLocation, projectionMatrix);
-        m_shader->setUniform(m_boxLocation, QVector4D(nativeBox.x() + nativeBox.width() * 0.5, nativeBox.y() + nativeBox.height() * 0.5, nativeBox.width() * 0.5, nativeBox.height() * 0.5));
-        m_shader->setUniform(m_cornerRadiusLocation, nativeCornerRadius.toVector());
+    // we're drawing on screen here
+    QMatrix4x4 projectionMatrix = viewport->projectionMatrix();
+    projectionMatrix.translate(scaledBackgroundRect->x(), scaledBackgroundRect->y());
 
-        BBDX::setTextureSwizzle(read->colorAttachment());
-        read->colorAttachment()->bind();
+    const KWin::RectF transformedRect = KWin::RectF{
+        w->frameGeometry().x() + data->xTranslation(),
+        w->frameGeometry().y() + data->yTranslation(),
+        w->frameGeometry().width() * data->xScale(),
+        w->frameGeometry().height() * data->yScale(),
+    };
 
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+#if KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
+    const KWin::RectF box{KWin::snapToPixelGridF(KWin::scaledRect(transformedRect, viewport->scale())).translated(-scaledBackgroundRect->topLeft())};
+#else
+    const KWin::RectF box{transformedRect.scaled(viewport->scale()).rounded().translated(-scaledBackgroundRect->topLeft())};
+#endif
 
-        blurCache->drawToCache(renderInfo, vbo);
+    m_shader->setUniform(m_mvpMatrixLocation, projectionMatrix);
+    m_shader->setUniform(m_modulationLocation, modulation);
+#if KWIN_VERSION < KWIN_VERSION_CODE(6, 6, 90)
+    m_shader->setUniform(m_boxLocation, QVector4D(box.x() + box.width() * 0.5, box.y() + box.height() * 0.5, box.width() * 0.5, box.height() * 0.5));
+#else
+    m_shader->setUniform(m_boxLocation, QVector4D(box.horizontalCenter(), box.verticalCenter(), box.width() * 0.5, box.height() * 0.5));
+#endif
+    m_shader->setUniform(m_cornerRadiusLocation, cornerRadius.scaled(viewport->scale()).rounded().toVector());
 
-        glDisable(GL_BLEND);
+    cacheEntry->cachedTexture()->bind();
 
-        KWin::ShaderManager::instance()->popShader();
+    /**
+     * src.rgb is passed through
+     * src.a is modulation * rounded-box-alpha
+     */
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    vbo->draw(GL_TRIANGLES, blurCache->vboStartScreen(), vertexCount);
+
+    glDisable(GL_BLEND);
+
+    KWin::ShaderManager::instance()->popShader();
+
+    return true;
 }

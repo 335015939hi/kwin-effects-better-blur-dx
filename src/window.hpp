@@ -1,6 +1,6 @@
 #pragma once
 
-#include "kwin_version.hpp"
+#include "kwin_compat.hpp"
 
 #include <QObject>
 #include <QRegion>
@@ -8,9 +8,7 @@
 #include <chrono>
 #include <optional>
 
-#if KWIN_VERSION < KWIN_VERSION_CODE(6, 5, 80)
-#  include "kwin_compat_6_5.hpp"
-#else
+#if KWIN_VERSION >= KWIN_VERSION_CODE(6, 5, 80)
 #  include <core/region.h>
 #endif
 
@@ -65,9 +63,9 @@ private:
     bool m_blurDocks{false};
     qreal m_userBorderRadius{0.0};
 
-    // if force blurred, contain content/frame of the blur region
-    std::optional<KWin::Region> m_forceBlurContent{};
-    std::optional<KWin::Region> m_forceBlurFrame{};
+    // if force blurred, contains the blurred region
+    std::optional<KWin::RegionF> m_forceBlurContent{};
+    std::optional<KWin::RegionF> m_forceBlurFrame{};
 
     // track whether this window requested a blur region
     // and where it came from
@@ -81,6 +79,9 @@ private:
 
     // track whether window is currently being transformed
     bool m_isTransformed{false};
+
+    // track whether window's blur region is currently fully covered
+    bool m_isBlurFullyCovered{false};
 
     // track whether window should be blurred even
     // when PAINT_WINDOW_TRANSFORMED is set
@@ -135,14 +136,16 @@ public:
      */
     void setIsTransformed(bool toggle);
     void setMaximizedState(MaximizedState state);
+    void setIsBlurFullyCovered(bool toggle);
 
     /**
      * getters
      */
     KWin::EffectWindow* effectwindow() const { return m_effectwindow; }
-    std::optional<KWin::Region> forceBlurContent() const { return m_forceBlurContent; };
-    std::optional<KWin::Region> forceBlurFrame() const { return m_forceBlurFrame; };
+    std::optional<KWin::RegionF> forceBlurContent() const { return m_forceBlurContent; };
+    std::optional<KWin::RegionF> forceBlurFrame() const { return m_forceBlurFrame; };
     bool shouldBlurWhileTransformed() const;
+    bool isBlurFullyCovered() const { return m_isBlurFullyCovered; }
 
     /**
      * reconfigure hook
@@ -156,7 +159,7 @@ public:
      * If values already exists keeps them and sets
      * m_blurOriginMask appropriately, else writes the current force blur region
      */
-    void getFinalBlurRegion(std::optional<KWin::Region> &content, std::optional<KWin::Region> &frame);
+    void getFinalBlurRegion(std::optional<KWin::RegionF> &content, std::optional<KWin::RegionF> &frame);
 
     /**
      * Get the effective border radius
@@ -188,11 +191,6 @@ public:
      * Whether this window is blurred in any way (requested or forced)
      */
     bool isBlurred() const;
-
-    /**
-     * Invalidate the blur cache for this window
-     */
-    bool invalidateBlurCache(QStringView reason) const;
 
     /**
      * operator to facilitate logging of windows
